@@ -1,0 +1,65 @@
+# App-pipeline canary (PullGuard ADR-0108 follow-up).
+#
+# WHY: the report-to-app -> native Check Run pipeline is best-effort by design
+# (a failed POST never fails a customer's scan) — which also means it is
+# never-alerting: in 2026-06/07 it was silently broken for ALL customers for
+# 8 days (a website www->apex 301 rewrote the report POST) and only a manual
+# screenshot session noticed. This canary re-runs the demo PR's scan daily and
+# fails loudly if a fresh PullGuard Check Run does not appear — exercising the
+# full production chain: Action -> image -> Worker -> GitHub App -> Checks API.
+#
+# A canary failure emails the org watchers via normal workflow-failure
+# notifications. It asserts EXISTENCE + freshness of the Check Run, never its
+# conclusion (this repo is deliberately vulnerable; the gate is *supposed* to
+# fail).
+name: App pipeline canary
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write   # rerun the scan workflow
+  checks: read     # read check runs
+  contents: read
+  pull-requests: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rerun the demo PR scan and wait for a fresh PullGuard Check Run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Latest scan run on the demo PR branch — rerunning it re-executes the
+          # pinned action against the same commit (no history pollution).
+          RUN_ID=$(gh api "repos/$REPO/actions/workflows/pullguard.yml/runs?branch=demo/adhoc-report-export&per_page=1" --jq '.workflow_runs[0].id')
+          echo "Rerunning scan run $RUN_ID"
+          gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun"
+
+          HEAD_SHA=$(gh api "repos/$REPO/pulls/1" --jq '.head.sha')
+          MERGE_SHA=$(gh api "repos/$REPO/pulls/1" --jq '.merge_commit_sha')
+
+          # Poll up to 10 minutes: images <v1.4.2 attach the Check Run to the
+          # merge SHA, v1.4.2+ to the head SHA — accept either, but require it
+          # to be FRESH (started after this canary began).
+          for i in $(seq 1 20); do
+            sleep 30
+            for SHA in "$HEAD_SHA" "$MERGE_SHA"; do
+              FRESH=$(gh api "repos/$REPO/commits/$SHA/check-runs" \
+                --jq "[.check_runs[] | select(.app.slug == \"pullguard-code-scanner\" and .started_at >= \"$STARTED_AT\")] | length")
+              if [ "$FRESH" -ge 1 ]; then
+                echo "Fresh PullGuard Check Run found on $SHA (poll $i) — pipeline healthy"
+                exit 0
+              fi
+            done
+            echo "poll $i/20: no fresh Check Run yet"
+          done
+
+          echo "::error::No fresh pullguard-code-scanner Check Run appeared within 10 minutes — the report-to-app pipeline is broken (see PullGuard ADR-0108)."
+          exit 1
