@@ -1,0 +1,10 @@
+# PullGuard configuration for the demo. See https://www.pullguard.dev/docs/configuration
+compliance:
+  hipaa: true
+  pci-dss: true
+  nist-800-53: true
+  iso-27001: true
+  # AI-era frameworks are opt-in and framed as "evidence supporting", never a verdict.
+  eu-ai-act: true
+  iso-42001: true
+  nist-ai-rmf: true

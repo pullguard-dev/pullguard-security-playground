@@ -1,0 +1,19 @@
+name: PullGuard
+on: [pull_request]
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pullguard-dev/pullguard-action@v1
+        with:
+          license-key: ${{ secrets.PULLGUARD_LICENSE_KEY }}
+          report-to-app: true
+          blame: true
+          collapse-preexisting-security: true
