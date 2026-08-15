@@ -2,12 +2,14 @@
 const express = require('express');
 const { productRouter } = require('./routes/products');
 const { reportRouter } = require('./routes/reports');
+const { adminRouter } = require('./routes/admin');
 
 const app = express();
 app.use(express.json());
 
 app.use('/products', productRouter);
 app.use('/reports', reportRouter);
+app.use('/admin', adminRouter);
 
 // WHY (demo): a health endpoint is public by design.
 app.get('/health', (req, res) => res.json({ ok: true }));
