@@ -1,5 +1,10 @@
 name: PullGuard
-on: [pull_request]
+# WHY workflow_dispatch: the daily canary re-runs this workflow's latest demo-PR
+# run, but GitHub refuses re-runs of runs older than 30 days — the canary falls
+# back to dispatching a fresh run on the demo branch (see canary.yml).
+on:
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
   pull-requests: write
