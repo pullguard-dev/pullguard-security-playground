@@ -38,9 +38,20 @@ jobs:
 
           # Latest scan run on the demo PR branch — rerunning it re-executes the
           # pinned action against the same commit (no history pollution).
+          # WHY the fallback: GitHub refuses to re-run workflow runs older than
+          # 30 days (HTTP 403), so once the demo PR's last scan run aged out the
+          # canary failed EVERY DAY for its own mechanical reason, drowning the
+          # signal it exists to raise (observed 2026-08-11..14, found only
+          # because an operator ran it by hand — the "alert path that has never
+          # executed is unverified" lesson). When the re-run is refused, fall
+          # back to dispatching a fresh scan run on the same branch — which also
+          # resets the 30-day clock for subsequent canaries.
           RUN_ID=$(gh api "repos/$REPO/actions/workflows/pullguard.yml/runs?branch=demo/adhoc-report-export&per_page=1" --jq '.workflow_runs[0].id')
           echo "Rerunning scan run $RUN_ID"
-          gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun"
+          if ! gh api -X POST "repos/$REPO/actions/runs/$RUN_ID/rerun"; then
+            echo "Re-run refused (run likely >30 days old) — dispatching a fresh scan instead"
+            gh workflow run pullguard.yml --repo "$REPO" --ref demo/adhoc-report-export
+          fi
 
           HEAD_SHA=$(gh api "repos/$REPO/pulls/1" --jq '.head.sha')
           MERGE_SHA=$(gh api "repos/$REPO/pulls/1" --jq '.merge_commit_sha')
